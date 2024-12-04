@@ -1,14 +1,10 @@
 # OpenRackVent - open_rack_vent 
 
-Control fans, read temperature sensors and manage the airflow inside of a server rack.
-
-## Table of Contents
-[TOC]
+Control fans, read temperature sensors and manage the airflow inside a server rack.
 
 ## Usage
 
 ####  Environment variables
-
 
 
 #### Correct usage
@@ -18,11 +14,6 @@ With the virtual env activated, run:
 ```
 python main.py --fill-me-in
 ```
-
-#### Incorrect usage
-
-Add if needed
-
 
 ## Getting Started
 

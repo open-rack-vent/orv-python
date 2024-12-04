@@ -43,6 +43,8 @@ version = "0.0.1"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+fastapi = "^0.115.6"
+uvicorn = "^0.32.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "*"
