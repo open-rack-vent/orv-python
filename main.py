@@ -8,6 +8,8 @@ from typing import Annotated, Dict, List, NamedTuple
 import fastapi
 import uvicorn
 
+from open_rack_vent import thermistor
+
 
 class PWMPin(str, Enum):
     """
@@ -46,6 +48,31 @@ Taken from beagleboard docs:
 https://docs.beagleboard.org/books/beaglebone-cookbook/04motors/motors.html#py-servomotor-code
 Wish I had a better source for this table than this blog post...
 """
+
+
+class ADCPin(str, Enum):
+    """
+    Different pins that can be used to read in ADC values.
+    """
+
+    P9_33 = "P9_33"
+    P9_35 = "P9_35"
+    P9_36 = "P9_36"
+    P9_37 = "P9_37"
+    P9_38 = "P9_38"
+    P9_39 = "P9_39"
+    P9_40 = "P9_40"
+
+
+_ADC_PORT_LOOKUP: Dict[ADCPin, int] = {
+    ADCPin.P9_39: 0,
+    ADCPin.P9_40: 1,
+    ADCPin.P9_37: 2,
+    ADCPin.P9_38: 3,
+    ADCPin.P9_33: 4,
+    ADCPin.P9_36: 5,
+    ADCPin.P9_35: 6,
+}
 
 
 def echo_value(path: Path, value: str) -> str:
@@ -103,6 +130,16 @@ def configure_pwm_pin(pwm_pin: PWMPin, period_ns: int, duty_pct: float) -> List[
     ]
 
 
+def read_adc_counts(adc_port: int) -> int:  # pylint: disable=unused-argument
+    """
+
+    :param adc_pin:
+    :return:
+    """
+
+    return 4096 // 2
+
+
 def main() -> None:
     """
     Main entry point for open_rack_vent
@@ -116,6 +153,8 @@ def main() -> None:
         0: PWMPin.P9_14,
     }
 
+    temperature_converter = thermistor.create_adc_counts_to_temperature_converter()
+
     @app.get("/")
     def read_root() -> Dict[str, str]:
         return {"Hello": "World"}
@@ -123,7 +162,7 @@ def main() -> None:
     @app.post("/fan/{module_number}/{power}")
     def change_module_power(
         module_number: int,
-        power: Annotated[float, fastapi.Path(gt=0, le=1.0)],
+        power: Annotated[float, fastapi.Path(ge=0, le=1.0)],
     ) -> Dict[str, str | List[str]]:
 
         pwm_pin = module_to_pin[module_number]
@@ -133,6 +172,21 @@ def main() -> None:
             "pwm_channel": str(pwm_channel),
             "commands": configure_pwm_pin(pwm_pin=pwm_pin, period_ns=40_000, duty_pct=power),
         }
+
+    @app.get("/temperature/{adc_port}")
+    def read_temperature(
+        adc_port: Annotated[
+            int,
+            fastapi.Path(ge=min(_ADC_PORT_LOOKUP.values()), le=max(_ADC_PORT_LOOKUP.values())),
+        ]
+    ) -> Dict[str, str]:
+        """
+
+        :param adc_port:
+        :return:
+        """
+
+        return {str(adc_port): str(temperature_converter(read_adc_counts(adc_port=adc_port)))}
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
