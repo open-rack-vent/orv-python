@@ -18,6 +18,7 @@ class PWMPin(str, Enum):
 
     P9_31 = "P9_31"
     P9_29 = "P9_29"
+    P9_22 = "P9_22"
     P9_14 = "P9_14"
     P9_16 = "P9_16"
     P8_19 = "P8_19"
@@ -38,8 +39,9 @@ class PWMChannel(NamedTuple):
 _PWM_CHANNEL_LOOKUP: Dict[PWMPin, PWMChannel] = {
     PWMPin.P9_31: PWMChannel(pwm_id=0, channel="a"),
     PWMPin.P9_29: PWMChannel(pwm_id=0, channel="b"),
-    PWMPin.P9_14: PWMChannel(pwm_id=1, channel="a"),
-    PWMPin.P9_16: PWMChannel(pwm_id=1, channel="b"),
+    PWMPin.P9_22: PWMChannel(pwm_id=0, channel="a"),
+    PWMPin.P9_14: PWMChannel(pwm_id=1, channel="a"),  # Mux 1 ?
+    PWMPin.P9_16: PWMChannel(pwm_id=1, channel="b"),  # Mux 1 ?
     PWMPin.P8_19: PWMChannel(pwm_id=2, channel="a"),
     PWMPin.P8_13: PWMChannel(pwm_id=2, channel="b"),
 }
@@ -161,7 +163,10 @@ def main() -> None:
 
     # Somehow, this mapping will be passed in from the user.
     module_to_pwm_pin: Dict[int, PWMPin] = {
-        0: PWMPin.P9_14,
+        0: PWMPin.P8_13,  # Top Right
+        1: PWMPin.P9_16,  # Bottom Right
+        2: PWMPin.P9_22,  # Top Left
+        3: PWMPin.P8_19,  # Bottom Left
     }
 
     temperature_converter = thermistor.create_adc_counts_to_temperature_converter()
