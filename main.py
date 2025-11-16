@@ -196,7 +196,7 @@ def main() -> None:
 
         return {
             "pwm_channel": str(pwm_channel),
-            "commands": configure_pwm_pin(pwm_pin=pwm_pin, period_ns=40_000, duty_pct=power),
+            "commands": configure_pwm_pin(pwm_pin=pwm_pin, period_ns=1_000, duty_pct=power),
         }
 
     @app.get(
