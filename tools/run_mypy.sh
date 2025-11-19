@@ -11,6 +11,6 @@ source ./.venv/bin/activate
 
 export PYTHONPATH=".:./test${PYTHONPATH+:}${PYTHONPATH:-}"
 
-mypy --show-error-codes main.py  # Run on loose files within this project
+mypy --show-error-codes orvcli.py  # Run on loose files within this project
 mypy --show-error-codes -p open_rack_vent -p test  # Run on sub-packages within this project
 

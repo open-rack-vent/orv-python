@@ -1,4 +1,4 @@
-# OpenRackVent - open_rack_vent 
+# Open Rack Vent - open_rack_vent 
 
 Control fans, read temperature sensors and manage the airflow inside a server rack.
 

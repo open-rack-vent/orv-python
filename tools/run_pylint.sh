@@ -12,4 +12,4 @@ source ./.venv/bin/activate
 
 export PYTHONPATH=".:./test${PYTHONPATH+:}${PYTHONPATH:-}"
 
-pylint main.py open_rack_vent test
+pylint orvcli.py open_rack_vent test
