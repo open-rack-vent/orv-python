@@ -14,7 +14,7 @@ from open_rack_vent.host_hardware import OnboardLED, OpenRackVentHardwareInterfa
 from open_rack_vent.host_hardware.board_interface_types import RackLocation
 
 
-def create_web_interface(hardware_interface: OpenRackVentHardwareInterface) -> None:
+def create_web_interface(orv_hardware_interface: OpenRackVentHardwareInterface) -> None:
     """
     Main entry point for open_rack_vent
     :return: None
@@ -43,10 +43,10 @@ def create_web_interface(hardware_interface: OpenRackVentHardwareInterface) -> N
         can be ignored.
         """
 
-        try:
-            controls = hardware_interface.fan_controllers[location]
-        except KeyError as key_error:
-            raise ValueError(f"Invalid Rack Location: {location}") from key_error
+        controls = orv_hardware_interface.fan_controllers.get(location)
+
+        if controls is None:
+            raise ValueError(f"Invalid Rack Location: {location}")
 
         return {
             "commands": list(
@@ -67,10 +67,11 @@ def create_web_interface(hardware_interface: OpenRackVentHardwareInterface) -> N
         :param location: Location within the rack to read the temperature from.
         :return: Dictionary with the average temperature, e.g. {"temperature": 32.5}.
         """
-        try:
-            read_temperatures = hardware_interface.temperature_readers[location]
-        except KeyError as key_error:
-            raise ValueError(f"Invalid Rack Location: {location}") from key_error
+
+        read_temperatures = orv_hardware_interface.temperature_readers.get(location)
+
+        if read_temperatures is None:
+            raise ValueError(f"Invalid Rack Location: {location}")
 
         return {
             "temperature": statistics.mean([read_function() for read_function in read_temperatures])
@@ -92,6 +93,6 @@ def create_web_interface(hardware_interface: OpenRackVentHardwareInterface) -> N
         :return: A dict containing the commands executed to set the LED. For debugging.
         """
 
-        return {"commands": hardware_interface.set_onboard_led(led, state)}
+        return {"commands": orv_hardware_interface.set_onboard_led(led, state)}
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -12,7 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from bonus_click import options
 from pydantic import BaseModel, ValidationError
 
-from open_rack_vent import web_interface
+from open_rack_vent import mqtt_interface, web_interface
 from open_rack_vent.host_hardware import (
     HardwarePlatform,
     OnboardLED,
@@ -182,8 +182,22 @@ def cli() -> None:
     envvar="ORV_WEB_API_ENABLED",
     show_envvar=True,
 )
+@click.option(
+    "--mqtt-api",
+    required=True,
+    help="Providing this enables the MQTT api.",
+    is_flag=True,
+    default=True,
+    show_default=True,
+    envvar="ORV_MQTT_API_ENABLED",
+    show_envvar=True,
+)
 def run(
-    platform: HardwarePlatform, pcb_revision: PCBRevision, wire_mapping: WireMapping, web_api: bool
+    platform: HardwarePlatform,
+    pcb_revision: PCBRevision,
+    wire_mapping: WireMapping,
+    web_api: bool,
+    mqtt_api: bool,
 ) -> None:
     """
     Main air management program. Controls fans, reads sensors.
@@ -194,6 +208,7 @@ def run(
     :param pcb_revision: See click docs!
     :param wire_mapping: See click docs!
     :param web_api: See click docs!
+    :param mqtt_api: See click docs!
     :return: None
     """
 
@@ -219,8 +234,7 @@ def run(
             args=(lambda v: hardware_interface.set_onboard_led(OnboardLED.run, v), count(0)),
         )
 
-        if web_api:
-
+        if any([web_api, mqtt_api]):
             scheduler.add_job(
                 toggling_job,
                 "interval",
@@ -228,7 +242,21 @@ def run(
                 args=(lambda v: hardware_interface.set_onboard_led(OnboardLED.web, v), count(0)),
             )
 
-            web_interface.create_web_interface(hardware_interface=hardware_interface)
+        # TODO: Both block for now, we can fork off with subprocesses easily.
+
+        if mqtt_api:
+            mqtt_interface.run_open_rack_vent_mqtt(
+                orv_hardware_interface=hardware_interface,
+                broker_host="homeassistant",
+                device_id="orv-1",
+                pcb_revision=pcb_revision,
+                publish_interval=1,
+                mqtt_username="orv_user",
+                mqtt_password="password",
+            )
+
+        if web_api:
+            web_interface.create_web_interface(orv_hardware_interface=hardware_interface)
 
     except Exception as _exn:  # pylint: disable=broad-except
 
