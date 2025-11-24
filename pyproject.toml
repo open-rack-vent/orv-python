@@ -46,11 +46,11 @@ version = "0.1.0"
 python = "^3.10"
 fastapi = "^0.115.6"
 uvicorn = "^0.32.1"
-numpy = "^2.2.0"
 pydantic = "^2.12.4"
 bonus-click = "^0.1.0"
 click = "^8.3.1"
 apscheduler = "^3.11.1"
+paho-mqtt = "^2.1.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "*"
@@ -58,7 +58,6 @@ isort = "*"
 mypy = "*"
 pre-commit = "*"
 pylint = "*"
-pydevd-pycharm = ">=231.8109.197,<231.8110.0"
 wheel = "^0.38"
 
 [tool.poetry.group.test.dependencies]

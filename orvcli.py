@@ -36,25 +36,46 @@ LOGGER = logging.getLogger(__name__)
 
 def type_to_str(annotation: type) -> str:
     """
-    Convert a type annotation to a readable string for help.
-    Handles generics like list[int], list[Enum], dicts, etc.
-    Capitalizes the outer type name (List, Dict, etc.).
+    Convert a type annotation into a readable representation for help text.
+
+    Supports:
+    - Enums -> "Enum[A, B, C]"
+    - NamedTuple -> "Racklocation(vertical: Racklevel, side: Rackside)"
+    - Generics like List[int], Dict[str, Enum], etc.
+    - Capitalizes outer container types (List, Dict, Set...).
+
     :param annotation: The type annotation to convert.
-    :return: The type as a string
+    :return: Readable type string.
     """
     origin = get_origin(annotation)
-    if origin is None:
-        # Handle enums nicely
-        if isinstance(annotation, type) and issubclass(annotation, Enum):
-            return f"Enum[{', '.join( [e.value for e in annotation])}]"
 
+    # Handle NamedTuple types
+    if (
+        isinstance(annotation, type)
+        and issubclass(annotation, tuple)
+        and hasattr(annotation, "_fields")
+    ):
+        field_parts = []
+        for field_name, field_type in annotation.__annotations__.items():
+            field_parts.append(f"{field_name}: {type_to_str(field_type)}")
+        field_str = ", ".join(field_parts)
+        return f"{annotation.__name__.title()}({field_str})"
+
+    # Handle Enums
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        # Use enum *values* rather than names, uppercased
+        return f"Enum[{', '.join(e.value.upper() for e in annotation)}]"
+
+    # Handle non-generic simple types
+    if origin is None:
         return annotation.__name__.title()
 
-    annotation_args = get_args(annotation)
+    # Handle generic types (List, Dict, etc.)
+    args = get_args(annotation)
     origin_name = getattr(origin, "__name__", str(origin)).title()
 
-    if annotation_args:
-        inner = ", ".join(type_to_str(a) for a in annotation_args)
+    if args:
+        inner = ", ".join(type_to_str(a) for a in args)
         return f"{origin_name}[{inner}]"
 
     return origin_name
@@ -142,10 +163,8 @@ def cli() -> None:
         help_prefix="JSON payload string with keys:", model=WireMapping
     ),
     default=(
-        '{"version":"1","upper_intake_fans":["ONBOARD","PN3"],'
-        '"lower_intake_fans":["PN2","PN5"],"upper_exhaust_fans":[],'
-        '"intake_thermistor_pins":["TMP0","TMP1"],'
-        '"exhaust_thermistor_pins":["TMP4","TMP5"]}'
+        '{"version":"1","fans":{"intake_lower":["PN2","PN5"],"intake_upper":["ONBOARD","PN3"]},'
+        '"thermistors":{"intake_lower":["TMP0","TMP1"],"intake_upper":["TMP4","TMP5"]}}'
     ),
     envvar="ORV_WIRE_MAPPING_JSON",
     show_envvar=True,
@@ -179,6 +198,12 @@ def run(
 
     try:
 
+        hardware_interface = create_hardware_interface(
+            pcb_revision=pcb_revision,
+            platform=platform,
+            wire_mapping=wire_mapping,
+        )
+
         hardware_interface.set_onboard_led(OnboardLED.fault, False)
 
         scheduler = BackgroundScheduler()
@@ -189,12 +214,6 @@ def run(
             "interval",
             seconds=5,
             args=(lambda v: hardware_interface.set_onboard_led(OnboardLED.run, v), count(0)),
-        )
-
-        hardware_interface = create_hardware_interface(
-            pcb_revision=pcb_revision,
-            platform=platform,
-            wire_mapping=wire_mapping,
         )
 
         if web_api:

@@ -7,12 +7,14 @@ import subprocess
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, NamedTuple
+from typing import Dict, List, NamedTuple
 
 from open_rack_vent import thermistor
 from open_rack_vent.host_hardware import board_markings
 from open_rack_vent.host_hardware.board_interface_types import (
+    FanController,
     OpenRackVentHardwareInterface,
+    TemperatureReader,
     WireMapping,
 )
 
@@ -323,7 +325,7 @@ def create_interface(
 
     def create_read_all_temperatures(
         input_board_markings: List[board_markings.BoardMarkingThermistorPin],
-    ) -> List[float]:
+    ) -> List[TemperatureReader]:
         """
         Read the temperatures for the thermistor pins.
         :param input_board_markings: To read.
@@ -331,15 +333,16 @@ def create_interface(
         """
 
         return [
-            temperature_converter(
-                read_adc_counts(adc_pin=board_marking_lookup.thermistor[board_marking])
+            partial(
+                temperature_converter,
+                read_adc_counts(adc_pin=board_marking_lookup.thermistor[board_marking]),
             )
             for board_marking in input_board_markings
         ]
 
     def create_fan_controls(
         input_board_markings: List[board_markings.BoardMarkingActiveLowPWM],
-    ) -> List[Callable[[float], List[str]]]:
+    ) -> List[FanController]:
         """
         Returns a list of functions that have the pre-populated driver function as the callable.
         :param input_board_markings: One output function per this input.
@@ -355,19 +358,12 @@ def create_interface(
         set_onboard_led=lambda onboard_led, value: configure_gpio_pin(
             gpio_pin=board_marking_lookup.led[onboard_led], value=value
         ),
-        read_all_intake_temperatures=lambda: create_read_all_temperatures(
-            wire_mapping.intake_thermistor_pins
-        ),
-        read_all_exhaust_temperatures=lambda: create_read_all_temperatures(
-            wire_mapping.exhaust_thermistor_pins
-        ),
-        lower_intake_fan_controls=create_fan_controls(
-            input_board_markings=wire_mapping.lower_intake_fans
-        ),
-        upper_intake_fan_controls=create_fan_controls(
-            input_board_markings=wire_mapping.upper_intake_fans
-        ),
-        upper_exhaust_fan_controls=create_fan_controls(
-            input_board_markings=wire_mapping.upper_exhaust_fans
-        ),
+        fan_controllers={
+            location: create_fan_controls(input_board_markings=fan_board_markings)
+            for location, fan_board_markings in wire_mapping.fans.items()
+        },
+        temperature_readers={
+            location: create_read_all_temperatures(input_board_markings=thermistor_board_markings)
+            for location, thermistor_board_markings in wire_mapping.thermistors.items()
+        },
     )
