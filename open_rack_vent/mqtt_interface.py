@@ -89,6 +89,7 @@ def make_on_connect(
                             "unit_of_measurement": "°C",
                             "device": device,
                             "availability_topic": availability_topic,
+                            "force_update": True,
                         }
                     ),
                     retain=True,
@@ -155,7 +156,7 @@ def make_on_message(
 
             # Expect: <device_id>/fan/<rack_location>/set
             if len(topic_parts) != 4 or topic_parts[1] != "fan" or topic_parts[3] != "set":
-                return  # Not a fan set command, ignore
+                return None  # Not a fan set command, ignore
 
             _, _, rack_location_raw, _ = topic_parts
 
@@ -166,8 +167,8 @@ def make_on_message(
             # Lookup fan controllers by rack location
             controls = orv_hardware_interface.fan_controllers.get(rack_location)
             if not controls:
-                print(f"No fan controllers found for rack_location={rack_location}")
-                return
+                LOGGER.warning(f"No fan controllers found for rack_location={rack_location}")
+                return None
 
             # Execute all fan controls
             _commands = list(itertools.chain.from_iterable(fn(power) for fn in controls))
@@ -180,6 +181,8 @@ def make_on_message(
             )
         except Exception as e:  # pylint: disable=broad-except
             LOGGER.error(f"Error handling MQTT message {msg.topic}: {e}")
+
+        return None
 
     return on_message
 
@@ -222,21 +225,23 @@ def run_open_rack_vent_mqtt(  # pylint: disable=too-many-positional-arguments
     mqtt_client.loop_start()
 
     try:
-        # Periodically publish info to the MQTT broker.
-
         while True:
             try:
                 for location, readers in orv_hardware_interface.temperature_readers.items():
 
-                    # Compute average temperature across all readers at this location
-                    average_temperature = statistics.mean([read_fn() for read_fn in readers])
-
-                    # Publish to the state_topic defined in discovery
                     topic = f"{device_id}/temperature/{location.value}"
-                    payload = json.dumps({"temperature": average_temperature})
+
+                    temperatures = list(filter(None, [read_fn() for read_fn in readers]))
+
+                    if temperatures:
+                        payload = json.dumps({"temperature": statistics.mean(temperatures)})
+                    else:
+                        payload = "unavailable"
 
                     mqtt_client.publish(topic, payload, retain=True)
-                    LOGGER.debug(f"Published temperature {average_temperature:.2f}°C to {topic}")
+
+                    LOGGER.info(f"Published payload: [{payload}] to topic: [{topic}]")
+
             except Exception as e:  # pylint: disable=broad-except
                 logging.error(f"Failed to publish temperatures: {e}")
             time.sleep(publish_interval)

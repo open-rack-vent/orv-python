@@ -5,7 +5,7 @@ methods (the REST API, the MQTT interface with Home Assistant) interact with.
 """
 
 from enum import Enum
-from typing import Callable, Dict, List, NamedTuple, Protocol
+from typing import Callable, Dict, List, NamedTuple, Optional, Protocol
 
 from pydantic import BaseModel
 
@@ -86,7 +86,7 @@ class TemperatureReader(Protocol):
     Defines the API for reading from a temperature sensor.
     """
 
-    def __call__(self) -> float:
+    def __call__(self) -> Optional[float]:
         """
         :return: Current temperature in celsius.
         """

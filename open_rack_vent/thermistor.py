@@ -6,7 +6,7 @@ See schematic for more details.
 
 import json
 from pathlib import Path
-from typing import Callable, Dict, Sequence, Union
+from typing import Callable, Dict, Optional, Sequence, Union
 
 from open_rack_vent import assets
 
@@ -92,31 +92,37 @@ def create_adc_counts_to_temperature_converter(
     max_adc_count: int = U_12_MAX,
 ) -> Callable[[int], float]:
     """
-
-    :param lookup_json_path:
-    :param pulldown_resistance:
-    :param max_adc_count:
-    :return:
+    Creates a callable function that converts the ADC counts to temperature. It does this by looking
+    up by calculating the resistance and looking up the resistance in a lookup.
+    :param lookup_json_path: Path to resistance->temp mapping.
+    :param pulldown_resistance: Circuit dependant pulldown resistance.
+    :param max_adc_count: The ADC count (in the u16 number space) for V_in, the max value that will
+    be seen.
+    :return: ADC counts to temperature function.
     """
 
-    resistance_to_temperature = _read_resistance_to_temperature(lookup_json_path=lookup_json_path)
+    resistance_to_temperature: Dict[float, float] = _read_resistance_to_temperature(
+        lookup_json_path=lookup_json_path
+    )
 
-    def adc_counts_to_temperature(adc_counts: int) -> float:
+    def adc_counts_to_temperature(adc_counts: int) -> Optional[float]:
         """
-
-        :param adc_counts:
-        :return:
+        Output function, uses the same loaded in mapping.
+        :param adc_counts: ADC counts.
+        :return: Temperature in degrees Celsius. If something goes wrong, a `None` is returned.
         """
+        try:
+            resistance_ohms = _counts_to_resistance(
+                adc_counts=adc_counts,
+                max_adc_count=max_adc_count,
+                pulldown_resistance=pulldown_resistance,
+            )
 
-        resistance_ohms = _counts_to_resistance(
-            adc_counts=adc_counts,
-            max_adc_count=max_adc_count,
-            pulldown_resistance=pulldown_resistance,
-        )
-
-        return _thermistor_temperature_resistance(
-            resistance=resistance_ohms,
-            resistance_to_temperature=resistance_to_temperature,
-        )
+            return _thermistor_temperature_resistance(
+                resistance=resistance_ohms,
+                resistance_to_temperature=resistance_to_temperature,
+            )
+        except Exception as _exn:  # pylint: disable=broad-except
+            return None
 
     return adc_counts_to_temperature
