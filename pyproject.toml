@@ -40,7 +40,7 @@ authors = ["Devon Bray"]
 description = "Control fans, read temperature sensors and manage the airflow inside of a server rack."
 name = "open_rack_vent"
 readme = "README.md"
-version = "0.1.0"
+version = "0.3.0"
 
 [tool.poetry.dependencies]
 python = "^3.10"

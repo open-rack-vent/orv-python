@@ -1,5 +1,14 @@
 # Changelog
 
+0.3.0 - (2025-11-26)
+------------------
+
+* Implements MQTT control API for integration with homeassistant.
+* Cleaned up CLI launcher code so both web and mqtt APIs can run at the same time if desired.
+* Added CLI entrypoint `render-systemd` for creating systemd units that run at startup.
+* General repo quality lift pre-publication.
+
+
 0.2.0 - (2025-11-18)
 ------------------
 
