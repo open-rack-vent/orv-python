@@ -1,0 +1,16 @@
+[Unit]
+Description=Open Rack Vent manager of fans and sensors attached to server rack.
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+StartLimitBurst=5
+StartLimitInterval=60
+User={{ user }}
+ExecStart={{ exec_start }}
+{% for k, v in env_vars.items() -%}
+Environment="{{ k }}={{ v }}"
+{% endfor %}
+[Install]
+WantedBy=multi-user.target

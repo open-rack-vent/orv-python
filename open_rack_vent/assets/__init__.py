@@ -8,3 +8,5 @@ _ASSETS_DIRECTORY = Path(__file__).parent.resolve()
 B2550_10K_3950K_NTC_THERMISTOR_LOOKUP_PATH = _ASSETS_DIRECTORY.joinpath(
     "10K_B2550_ 3950K_NTC_temperature_to_resistance_lookup.json"
 )
+
+SYSTEMD_SERVICE_TEMPLATE_PATH = _ASSETS_DIRECTORY.joinpath("open_rack_vent.service.jinja2")

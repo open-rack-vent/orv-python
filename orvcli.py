@@ -2,17 +2,22 @@
 
 import json
 import logging
+import os
+import sys
 from enum import Enum
 from functools import partial
 from itertools import count
+from pathlib import Path
 from typing import Any, Callable, List, Optional, Type, get_args, get_origin
 
 import click
 from apscheduler.schedulers.background import BackgroundScheduler
 from bonus_click import options
+from click.decorators import FC
+from jinja2 import Template
 from pydantic import BaseModel, ValidationError
 
-from open_rack_vent import canonical_stop_event
+from open_rack_vent import assets, canonical_stop_event
 from open_rack_vent.canonical_stop_event import SignalEvent
 from open_rack_vent.control_api import mqtt_api, web_api
 from open_rack_vent.control_api.control_api_common import APIController
@@ -145,121 +150,169 @@ def cli() -> None:
     """
 
 
-@cli.command(short_help="Main program to actually drive the fans")
-@options.create_enum_option(
-    arg_flag="--platform",
-    help_message="The type of hardware running this application.",
-    default=HardwarePlatform.beaglebone_black,
-    input_enum=HardwarePlatform,
-    envvar="ORV_PLATFORM",
-)
-@options.create_enum_option(
-    arg_flag="--pcb-revision",
-    help_message="The revision of the board driving the fans etc.",
-    default=PCBRevision.v100,
-    input_enum=PCBRevision,
-    envvar="ORV_PCB_REVISION",
-)
-@click.option(
-    "--wire-mapping-json",
-    "wire_mapping",
-    required=True,
-    callback=partial(validate_pydantic_json, WireMapping),
-    help=click_help_for_pydantic_model(
-        help_prefix="JSON payload string with keys:", model=WireMapping
-    ),
-    default=(
-        '{"version":"1","fans":{"intake_lower":["PN2","PN5"],"intake_upper":["ONBOARD","PN3"]},'
-        '"thermistors":{"intake_lower":["TMP0","TMP1"],"intake_upper":["TMP4","TMP5"]}}'
-    ),
-    envvar="ORV_WIRE_MAPPING_JSON",
-    show_envvar=True,
-)
-@click.option(
-    "--web-api",
-    "enable_web_api",
-    required=True,
-    help="Providing this enables the web control api.",
-    is_flag=True,
-    default=True,
-    show_default=True,
-    envvar="ORV_WEB_API_ENABLED",
-    show_envvar=True,
-)
-@click.option(
-    "--mqtt-api",
-    "enable_mqtt_api",
-    required=True,
-    help="Providing this enables the MQTT api.",
-    is_flag=True,
-    default=True,
-    show_default=True,
-    envvar="ORV_MQTT_API_ENABLED",
-    show_envvar=True,
-)
-@click.option(
-    "--web-api-host",
-    default="0.0.0.0",
-    show_default=True,
-    help="Host address the web API binds to.",
-    envvar="ORV_WEB_API_HOST",
-    show_envvar=True,
-    type=click.STRING,
-)
-@click.option(
-    "--web-api-port",
-    default=8000,
-    show_default=True,
-    help="Port the web API listens on.",
-    envvar="ORV_WEB_API_PORT",
-    show_envvar=True,
-    type=click.INT,
-)
-@click.option(
-    "--mqtt-broker-host",
-    default="homeassistant",
-    show_default=True,
-    help="Hostname or IP of the MQTT broker.",
-    envvar="ORV_MQTT_BROKER_HOST",
-    show_envvar=True,
-    type=click.STRING,
-)
-@click.option(
-    "--mqtt-broker-port",
-    default=1883,
-    show_default=True,
-    help="Port of the MQTT broker.",
-    envvar="ORV_MQTT_BROKER_PORT",
-    show_envvar=True,
-    type=click.INT,
-)
-@click.option(
-    "--mqtt-device-id",
-    default="orv-1",
-    show_default=True,
-    help="Device ID used for MQTT discovery/state topics.",
-    envvar="ORV_MQTT_DEVICE_ID",
-    show_envvar=True,
-    type=click.STRING,
-)
-@click.option(
-    "--mqtt-username",
-    default="orv_user",
-    show_default=True,
-    help="MQTT Broker username.",
-    envvar="ORV_MQTT_USERNAME",
-    show_envvar=True,
-    type=click.STRING,
-)
-@click.option(
-    "--mqtt-password",
-    default="password",
-    show_default=True,
-    help="MQTT Broker password.",
-    envvar="ORV_MQTT_PASSWORD",
-    show_envvar=True,
-    type=click.STRING,
-)
+_ENV_VAR_MAPPING = {
+    "platform": "ORV_PLATFORM",
+    "pcb_revision": "ORV_PCB_REVISION",
+    "wire_mapping_json": "ORV_WIRE_MAPPING_JSON",
+    "web_api": "ORV_WEB_API_ENABLED",
+    "mqtt_api": "ORV_MQTT_API_ENABLED",
+    "web_api_host": "ORV_WEB_API_HOST",
+    "web_api_port": "ORV_WEB_API_PORT",
+    "mqtt_broker_host": "ORV_MQTT_BROKER_HOST",
+    "mqtt_broker_port": "ORV_MQTT_BROKER_PORT",
+    "mqtt_device_id": "ORV_MQTT_DEVICE_ID",
+    "mqtt_username": "ORV_MQTT_USERNAME",
+    "mqtt_password": "ORV_MQTT_PASSWORD",
+}
+"""
+Used to make sure the environment variables match in the systemd unit and CLI arguments.
+"""
+
+
+def run_options() -> Callable[[FC], FC]:
+    """
+    Creates the group of click options that define a run.
+    :return: Wrapped command.
+    """
+
+    def output(command: FC) -> FC:
+        """
+        Wrap the input command.
+        :param command: To wrap.
+        :return: Wrapped input.
+        """
+
+        decorators = [
+            options.create_enum_option(
+                arg_flag="--platform",
+                help_message="The type of hardware running this application.",
+                default=HardwarePlatform.beaglebone_black,
+                input_enum=HardwarePlatform,
+                envvar=_ENV_VAR_MAPPING["platform"],
+            ),
+            options.create_enum_option(
+                arg_flag="--pcb-revision",
+                help_message="The revision of the board driving the fans etc.",
+                default=PCBRevision.v100,
+                input_enum=PCBRevision,
+                envvar=_ENV_VAR_MAPPING["pcb_revision"],
+            ),
+            click.option(
+                "--wire-mapping-json",
+                "wire_mapping",
+                required=True,
+                callback=partial(validate_pydantic_json, WireMapping),
+                help=click_help_for_pydantic_model(
+                    help_prefix="JSON payload string with keys:", model=WireMapping
+                ),
+                default=(
+                    '{"version":"1","fans":{"intake_lower":["PN2","PN5"],'
+                    '"intake_upper":["ONBOARD","PN3"]},'
+                    '"thermistors":{"intake_lower":["TMP0","TMP1"],"intake_upper":["TMP4","TMP5"]}}'
+                ),
+                envvar=_ENV_VAR_MAPPING["wire_mapping_json"],
+                show_envvar=True,
+            ),
+            click.option(
+                "--web-api",
+                "enable_web_api",
+                required=True,
+                help="Providing this enables the web control api.",
+                is_flag=True,
+                default=True,
+                show_default=True,
+                envvar=_ENV_VAR_MAPPING["web_api"],
+                show_envvar=True,
+            ),
+            click.option(
+                "--mqtt-api",
+                "enable_mqtt_api",
+                required=True,
+                help="Providing this enables the MQTT api.",
+                is_flag=True,
+                default=True,
+                show_default=True,
+                envvar=_ENV_VAR_MAPPING["mqtt_api"],
+                show_envvar=True,
+            ),
+            click.option(
+                "--web-api-host",
+                default="0.0.0.0",
+                show_default=True,
+                help="Host address the web API binds to.",
+                envvar=_ENV_VAR_MAPPING["web_api_host"],
+                show_envvar=True,
+                type=click.STRING,
+            ),
+            click.option(
+                "--web-api-port",
+                default=8000,
+                show_default=True,
+                help="Port the web API listens on.",
+                envvar=_ENV_VAR_MAPPING["web_api_port"],
+                show_envvar=True,
+                type=click.INT,
+            ),
+            click.option(
+                "--mqtt-broker-host",
+                default="homeassistant",
+                show_default=True,
+                help="Hostname or IP of the MQTT broker.",
+                envvar=_ENV_VAR_MAPPING["mqtt_broker_host"],
+                show_envvar=True,
+                type=click.STRING,
+            ),
+            click.option(
+                "--mqtt-broker-port",
+                default=1883,
+                show_default=True,
+                help="Port of the MQTT broker.",
+                envvar=_ENV_VAR_MAPPING["mqtt_broker_port"],
+                show_envvar=True,
+                type=click.INT,
+            ),
+            click.option(
+                "--mqtt-device-id",
+                default="orv-1",
+                show_default=True,
+                help="Device ID used for MQTT discovery/state topics.",
+                envvar=_ENV_VAR_MAPPING["mqtt_device_id"],
+                show_envvar=True,
+                type=click.STRING,
+            ),
+            click.option(
+                "--mqtt-username",
+                default="orv_user",
+                show_default=True,
+                help="MQTT Broker username.",
+                envvar=_ENV_VAR_MAPPING["mqtt_username"],
+                show_envvar=True,
+                type=click.STRING,
+            ),
+            click.option(
+                "--mqtt-password",
+                default="password",
+                show_default=True,
+                help="MQTT Broker password.",
+                envvar=_ENV_VAR_MAPPING["mqtt_password"],
+                show_envvar=True,
+                type=click.STRING,
+            ),
+        ]
+
+        for dec in reversed(decorators):
+            dec(command)
+
+        return command
+
+    return output
+
+
+RUN_COMMAND_NAME = "run"
+
+
+@cli.command(name=RUN_COMMAND_NAME, short_help="Main program to actually drive the fans")
+@run_options()
 def run(  # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
     platform: HardwarePlatform,
     pcb_revision: PCBRevision,
@@ -370,8 +423,150 @@ def run(  # pylint: disable=too-many-arguments, too-many-positional-arguments, t
             controller_api.stop()
 
         # Don't need to now but could add hardware cleanup here.
-
         LOGGER.info("Stopping ORV. Bye!")
+
+
+def render_systemd_file(  # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
+    platform: HardwarePlatform,
+    pcb_revision: PCBRevision,
+    wire_mapping: WireMapping,
+    enable_web_api: bool,
+    enable_mqtt_api: bool,
+    web_api_host: str,
+    web_api_port: int,
+    mqtt_broker_host: str,
+    mqtt_broker_port: int,
+    mqtt_device_id: str,
+    mqtt_username: str,
+    mqtt_password: str,
+) -> str:
+    """
+    Coerce the input args to strings and populate the asset systemd unit file.
+    :param platform: Passed to systemd file.
+    :param pcb_revision: Passed to systemd file.
+    :param wire_mapping: Passed to systemd file.
+    :param enable_web_api: Passed to systemd file.
+    :param enable_mqtt_api: Passed to systemd file.
+    :param web_api_host: Passed to systemd file.
+    :param web_api_port: Passed to systemd file.
+    :param mqtt_broker_host: Passed to systemd file.
+    :param mqtt_broker_port: Passed to systemd file.
+    :param mqtt_device_id: Passed to systemd file.
+    :param mqtt_username: Passed to systemd file.
+    :param mqtt_password: Passed to systemd file.
+    :return: The contents of the systemd file. Go write it to disk!
+    """
+
+    def systemd_escape(value: str) -> str:
+        """
+        Escape a value for systemd Environment= line.
+
+        - Backslashes are escaped first
+        - Double quotes are escaped
+        - Dollar signs are doubled
+        """
+        value = str(value)  # in case it’s not a string
+        value = value.replace("\\", "\\\\")
+        value = value.replace('"', '\\"')
+        value = value.replace("$", "$$")
+        return value
+
+    template = Template(assets.SYSTEMD_SERVICE_TEMPLATE_PATH.read_text(encoding="utf-8"))
+
+    rendered = template.render(
+        user=os.getlogin(),
+        exec_start=" ".join([sys.executable, os.path.abspath(__file__), RUN_COMMAND_NAME]),
+        env_vars={
+            k: systemd_escape(str(v))
+            for k, v in {
+                _ENV_VAR_MAPPING["platform"]: platform.value,
+                _ENV_VAR_MAPPING["pcb_revision"]: pcb_revision.value,
+                _ENV_VAR_MAPPING["wire_mapping_json"]: wire_mapping.model_dump_json(),
+                _ENV_VAR_MAPPING["web_api"]: str(enable_web_api).upper(),
+                _ENV_VAR_MAPPING["mqtt_api"]: str(enable_mqtt_api).upper(),
+                _ENV_VAR_MAPPING["web_api_host"]: web_api_host,
+                _ENV_VAR_MAPPING["web_api_port"]: str(web_api_port),
+                _ENV_VAR_MAPPING["mqtt_broker_host"]: mqtt_broker_host,
+                _ENV_VAR_MAPPING["mqtt_broker_port"]: mqtt_broker_port,
+                _ENV_VAR_MAPPING["mqtt_device_id"]: mqtt_device_id,
+                _ENV_VAR_MAPPING["mqtt_username"]: mqtt_username,
+                _ENV_VAR_MAPPING["mqtt_password"]: mqtt_password,
+            }.items()
+        },
+    )
+
+    return rendered
+
+
+@cli.command(short_help="Creates a systemd unit that will start the run at boot.")
+@run_options()
+@click.option(
+    "--output-path",
+    default=Path("./open_rack_vent.service").resolve(),
+    show_default=True,
+    help="The resulting systemd service def will be written to this path.",
+    type=click.Path(
+        file_okay=True, dir_okay=False, writable=True, resolve_path=True, path_type=Path
+    ),
+)
+def render_systemd(  # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
+    platform: HardwarePlatform,
+    pcb_revision: PCBRevision,
+    wire_mapping: WireMapping,
+    enable_web_api: bool,
+    enable_mqtt_api: bool,
+    web_api_host: str,
+    web_api_port: int,
+    mqtt_broker_host: str,
+    mqtt_broker_port: int,
+    mqtt_device_id: str,
+    mqtt_username: str,
+    mqtt_password: str,
+    output_path: Path,
+) -> None:
+    """
+    Creates a systemd unit that will start the run at boot with the given parameters. The current
+    executable is used as the systemd executable and all arguments are pre-validated and passed
+    as environment variables in the unit.
+
+    \f
+
+    :param platform: See click docs!
+    :param pcb_revision: See click docs!
+    :param wire_mapping: See click docs!
+    :param enable_web_api: See click docs!
+    :param enable_mqtt_api: See click docs!
+    :param web_api_host: See click docs!
+    :param web_api_port: See click docs!
+    :param mqtt_broker_host: See click docs!
+    :param mqtt_broker_port: See click docs!
+    :param mqtt_device_id: See click docs!
+    :param mqtt_username: See click docs!
+    :param mqtt_password: See click docs!
+    :param output_path: See click docs!
+    :return: None
+    """
+
+    file_contents = render_systemd_file(
+        platform=platform,
+        pcb_revision=pcb_revision,
+        wire_mapping=wire_mapping,
+        enable_web_api=enable_web_api,
+        enable_mqtt_api=enable_mqtt_api,
+        web_api_host=web_api_host,
+        web_api_port=web_api_port,
+        mqtt_broker_host=mqtt_broker_host,
+        mqtt_broker_port=mqtt_broker_port,
+        mqtt_device_id=mqtt_device_id,
+        mqtt_username=mqtt_username,
+        mqtt_password=mqtt_password,
+    )
+
+    with open(output_path, "w", encoding="utf-8") as output_file:
+        output_file.write(file_contents)
+
+    click.echo(f"Wrote systemd unit to {output_path}")
+    click.echo(file_contents)
 
 
 if __name__ == "__main__":
