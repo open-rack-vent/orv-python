@@ -197,12 +197,82 @@ def cli() -> None:
     envvar="ORV_MQTT_API_ENABLED",
     show_envvar=True,
 )
-def run(
+@click.option(
+    "--web-api-host",
+    default="0.0.0.0",
+    show_default=True,
+    help="Host address the web API binds to.",
+    envvar="ORV_WEB_API_HOST",
+    show_envvar=True,
+    type=click.STRING,
+)
+@click.option(
+    "--web-api-port",
+    default=8000,
+    show_default=True,
+    help="Port the web API listens on.",
+    envvar="ORV_WEB_API_PORT",
+    show_envvar=True,
+    type=click.INT,
+)
+@click.option(
+    "--mqtt-broker-host",
+    default="homeassistant",
+    show_default=True,
+    help="Hostname or IP of the MQTT broker.",
+    envvar="ORV_MQTT_BROKER_HOST",
+    show_envvar=True,
+    type=click.STRING,
+)
+@click.option(
+    "--mqtt-broker-port",
+    default=1883,
+    show_default=True,
+    help="Port of the MQTT broker.",
+    envvar="ORV_MQTT_BROKER_PORT",
+    show_envvar=True,
+    type=click.INT,
+)
+@click.option(
+    "--mqtt-device-id",
+    default="orv-1",
+    show_default=True,
+    help="Device ID used for MQTT discovery/state topics.",
+    envvar="ORV_MQTT_DEVICE_ID",
+    show_envvar=True,
+    type=click.STRING,
+)
+@click.option(
+    "--mqtt-username",
+    default="orv_user",
+    show_default=True,
+    help="MQTT Broker username.",
+    envvar="ORV_MQTT_USERNAME",
+    show_envvar=True,
+    type=click.STRING,
+)
+@click.option(
+    "--mqtt-password",
+    default="password",
+    show_default=True,
+    help="MQTT Broker password.",
+    envvar="ORV_MQTT_PASSWORD",
+    show_envvar=True,
+    type=click.STRING,
+)
+def run(  # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
     platform: HardwarePlatform,
     pcb_revision: PCBRevision,
     wire_mapping: WireMapping,
     enable_web_api: bool,
     enable_mqtt_api: bool,
+    web_api_host: str,
+    web_api_port: int,
+    mqtt_broker_host: str,
+    mqtt_broker_port: int,
+    mqtt_device_id: str,
+    mqtt_username: str,
+    mqtt_password: str,
 ) -> None:
     """
     Main air management program. Controls fans, reads sensors.
@@ -214,6 +284,13 @@ def run(
     :param wire_mapping: See click docs!
     :param enable_web_api: See click docs!
     :param enable_mqtt_api: See click docs!
+    :param web_api_host: See click docs!
+    :param web_api_port: See click docs!
+    :param mqtt_broker_host: See click docs!
+    :param mqtt_broker_port: See click docs!
+    :param mqtt_device_id: See click docs!
+    :param mqtt_username: See click docs!
+    :param mqtt_password: See click docs!
     :return: None
     """
 
@@ -255,8 +332,8 @@ def run(
             controller_apis.append(
                 web_api.create_web_api(
                     orv_hardware_interface=hardware_interface,
-                    host="0.0.0.0",
-                    port=8000,
+                    host=web_api_host,
+                    port=web_api_port,
                 )
             )
 
@@ -264,13 +341,13 @@ def run(
             controller_apis.append(
                 mqtt_api.run_open_rack_vent_mqtt(
                     orv_hardware_interface=hardware_interface,
-                    broker_host="homeassistant",
-                    broker_port=1883,
-                    device_id="orv-1",
+                    broker_host=mqtt_broker_host,
+                    broker_port=mqtt_broker_port,
+                    device_id=mqtt_device_id,
                     pcb_revision=pcb_revision,
                     publish_interval=1,
-                    mqtt_username="orv_user",
-                    mqtt_password="password",
+                    mqtt_username=mqtt_username,
+                    mqtt_password=mqtt_password,
                 )
             )
 
@@ -300,6 +377,5 @@ def run(
 if __name__ == "__main__":
 
     # TODO -- want an entrypoint to install a systemd unit
-    # Also needs to be a click program
 
     cli()
