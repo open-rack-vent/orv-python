@@ -321,6 +321,7 @@ def create_interface(
     :return: Collection of callables consumed by the rest of the application.
     """
 
+    # TODO: We should be able to pass in the pulldown resistance here.
     temperature_converter = thermistor.create_adc_counts_to_temperature_converter()
 
     def create_read_all_temperatures(

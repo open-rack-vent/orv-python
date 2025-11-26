@@ -6,11 +6,15 @@ import itertools
 import json
 import logging
 import statistics
+import threading
 import time
 from typing import Callable, Dict
 
 import paho.mqtt.client as mqtt
 
+from open_rack_vent import canonical_stop_event
+from open_rack_vent.canonical_stop_event import SignalEvent
+from open_rack_vent.control_api.control_api_common import APIController
 from open_rack_vent.host_hardware import OpenRackVentHardwareInterface
 from open_rack_vent.host_hardware.board_interface_types import PCBRevision, RackLocation
 
@@ -190,66 +194,91 @@ def make_on_message(
 def run_open_rack_vent_mqtt(  # pylint: disable=too-many-positional-arguments
     orv_hardware_interface: OpenRackVentHardwareInterface,
     broker_host: str,
+    broker_port: int,
     device_id: str,
     pcb_revision: PCBRevision,
     publish_interval: float,
     mqtt_username: str,
     mqtt_password: str,
-) -> None:
+) -> APIController:
     """
     Start the stateless MQTT interface for the Open Rack Vent hardware.
 
     :param orv_hardware_interface: OpenRackVentHardwareInterface, the main API for controlling and
     listing control surfaces.
     :param broker_host: MQTT broker hostname
+    :param broker_port: MQTT broker port
     :param device_id: Base MQTT topic prefix
     :param pcb_revision: Consumed in setting the "Model" Field in the config endpoints.
     :param publish_interval: How often to send new values.
     :param mqtt_username: MQTT username, used to authenticate with MQTT.
     :param mqtt_password: Used to authenticate with MQTT.
     """
-    mqtt_client = mqtt.Client(client_id=f"{device_id}_controller")
 
-    mqtt_client.will_set(f"{device_id}/status/online", "offline", retain=True)
+    def thread_target(stop_event: SignalEvent) -> None:
+        """
+        Creates the MQTT client and starts publishing/handling events.
+        :param stop_event: If this is set the MQTT client will exit.
+        :return: None
+        """
 
-    mqtt_client.on_connect = make_on_connect(
-        orv_hardware_interface=orv_hardware_interface,
-        device_id=device_id,
-        pcb_revision=pcb_revision,
-    )
+        mqtt_client = mqtt.Client(client_id=f"{device_id}_controller")
 
-    # Haven't re-worked below this line
-    mqtt_client.on_message = make_on_message(orv_hardware_interface, device_id)
-    mqtt_client.username_pw_set(mqtt_username, mqtt_password)
-    mqtt_client.connect(broker_host, 1883, 60)
-    mqtt_client.loop_start()
+        mqtt_client.will_set(f"{device_id}/status/online", "offline", retain=True)
 
-    try:
-        while True:
-            try:
-                for location, readers in orv_hardware_interface.temperature_readers.items():
+        mqtt_client.on_connect = make_on_connect(
+            orv_hardware_interface=orv_hardware_interface,
+            device_id=device_id,
+            pcb_revision=pcb_revision,
+        )
 
-                    topic = f"{device_id}/temperature/{location.value}"
+        # Haven't re-worked below this line
+        mqtt_client.on_message = make_on_message(orv_hardware_interface, device_id)
+        mqtt_client.username_pw_set(mqtt_username, mqtt_password)
+        mqtt_client.connect(broker_host, broker_port, 60)
+        mqtt_client.loop_start()
 
-                    temperatures = list(filter(None, [read_fn() for read_fn in readers]))
+        try:
+            while not stop_event.is_set():
+                try:
+                    for location, readers in orv_hardware_interface.temperature_readers.items():
 
-                    if temperatures:
-                        payload = json.dumps({"temperature": statistics.mean(temperatures)})
-                    else:
-                        payload = "unavailable"
+                        topic = f"{device_id}/temperature/{location.value}"
 
-                    mqtt_client.publish(topic, payload, retain=True)
+                        temperatures = list(filter(None, [read_fn() for read_fn in readers]))
 
-                    LOGGER.info(f"Published payload: [{payload}] to topic: [{topic}]")
+                        if temperatures:
+                            payload = json.dumps({"temperature": statistics.mean(temperatures)})
+                        else:
+                            payload = "unavailable"
 
-            except Exception as e:  # pylint: disable=broad-except
-                logging.error(f"Failed to publish temperatures: {e}")
-            time.sleep(publish_interval)
+                        mqtt_client.publish(topic, payload, retain=True)
 
-    except KeyboardInterrupt:
-        LOGGER.info("Shutting down MQTT interface...")
-    finally:
-        mqtt_client.publish(f"{device_id}/status/online", "offline", retain=True)
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
-        LOGGER.info("Disconnected from MQTT broker.")
+                        LOGGER.info(f"Published payload: [{payload}] to topic: [{topic}]")
+
+                except Exception as e:  # pylint: disable=broad-except
+                    logging.error(f"Failed to publish temperatures: {e}")
+                time.sleep(publish_interval)
+
+        except KeyboardInterrupt:
+            LOGGER.info("Shutting down MQTT interface...")
+        finally:
+            mqtt_client.publish(f"{device_id}/status/online", "offline", retain=True)
+            mqtt_client.loop_stop()
+            mqtt_client.disconnect()
+            LOGGER.info("Disconnected from MQTT broker.")
+
+    thread_stop_event = canonical_stop_event.create_signal_event()
+
+    thread = threading.Thread(target=thread_target, args=(thread_stop_event,))
+
+    def stop() -> None:
+        """
+        Set the stop event and then join the thread gracefully.
+        :return: None
+        """
+
+        thread_stop_event.set()
+        thread.join()
+
+    return APIController(non_blocking_run=thread.start, stop=stop)

@@ -5,14 +5,17 @@ import logging
 from enum import Enum
 from functools import partial
 from itertools import count
-from typing import Any, Callable, Optional, Type, get_args, get_origin
+from typing import Any, Callable, List, Optional, Type, get_args, get_origin
 
 import click
 from apscheduler.schedulers.background import BackgroundScheduler
 from bonus_click import options
 from pydantic import BaseModel, ValidationError
 
-from open_rack_vent import mqtt_interface, web_interface
+from open_rack_vent import canonical_stop_event
+from open_rack_vent.canonical_stop_event import SignalEvent
+from open_rack_vent.control_api import mqtt_api, web_api
+from open_rack_vent.control_api.control_api_common import APIController
 from open_rack_vent.host_hardware import (
     HardwarePlatform,
     OnboardLED,
@@ -174,6 +177,7 @@ def cli() -> None:
 )
 @click.option(
     "--web-api",
+    "enable_web_api",
     required=True,
     help="Providing this enables the web control api.",
     is_flag=True,
@@ -184,6 +188,7 @@ def cli() -> None:
 )
 @click.option(
     "--mqtt-api",
+    "enable_mqtt_api",
     required=True,
     help="Providing this enables the MQTT api.",
     is_flag=True,
@@ -196,8 +201,8 @@ def run(
     platform: HardwarePlatform,
     pcb_revision: PCBRevision,
     wire_mapping: WireMapping,
-    web_api: bool,
-    mqtt_api: bool,
+    enable_web_api: bool,
+    enable_mqtt_api: bool,
 ) -> None:
     """
     Main air management program. Controls fans, reads sensors.
@@ -207,10 +212,15 @@ def run(
     :param platform: See click docs!
     :param pcb_revision: See click docs!
     :param wire_mapping: See click docs!
-    :param web_api: See click docs!
-    :param mqtt_api: See click docs!
+    :param enable_web_api: See click docs!
+    :param enable_mqtt_api: See click docs!
     :return: None
     """
+
+    stop_event: SignalEvent = canonical_stop_event.create_signal_event()
+    canonical_stop_event.entry_point_exit_condition(signal_event=stop_event)
+
+    controller_apis: List[APIController] = []
 
     hardware_interface: Optional[OpenRackVentHardwareInterface] = None
 
@@ -225,7 +235,6 @@ def run(
         hardware_interface.set_onboard_led(OnboardLED.fault, False)
 
         scheduler = BackgroundScheduler()
-        scheduler.start()
 
         scheduler.add_job(
             toggling_job,
@@ -242,28 +251,50 @@ def run(
                 args=(lambda v: hardware_interface.set_onboard_led(OnboardLED.web, v), count(0)),
             )
 
-        # TODO: Both block for now, we can fork off with subprocesses easily.
-
-        if mqtt_api:
-            mqtt_interface.run_open_rack_vent_mqtt(
-                orv_hardware_interface=hardware_interface,
-                broker_host="homeassistant",
-                device_id="orv-1",
-                pcb_revision=pcb_revision,
-                publish_interval=1,
-                mqtt_username="orv_user",
-                mqtt_password="password",
+        if enable_web_api:
+            controller_apis.append(
+                web_api.create_web_api(
+                    orv_hardware_interface=hardware_interface,
+                    host="0.0.0.0",
+                    port=8000,
+                )
             )
 
-        if web_api:
-            web_interface.create_web_interface(orv_hardware_interface=hardware_interface)
+        if enable_mqtt_api:
+            controller_apis.append(
+                mqtt_api.run_open_rack_vent_mqtt(
+                    orv_hardware_interface=hardware_interface,
+                    broker_host="homeassistant",
+                    broker_port=1883,
+                    device_id="orv-1",
+                    pcb_revision=pcb_revision,
+                    publish_interval=1,
+                    mqtt_username="orv_user",
+                    mqtt_password="password",
+                )
+            )
 
-    except Exception as _exn:  # pylint: disable=broad-except
+        scheduler.start()
 
+        for controller_api in controller_apis:
+            controller_api.non_blocking_run()
+
+        LOGGER.info("All APIs up.")
+
+        # Frees the CPU
+        stop_event.wait()
+
+    except Exception:  # pylint: disable=broad-except
         if hardware_interface is not None:
             hardware_interface.set_onboard_led(OnboardLED.fault, True)
+        LOGGER.exception("Uncaught Runtime Error")
+    finally:
+        for controller_api in controller_apis:
+            controller_api.stop()
 
-        LOGGER.exception("Uncaught Error! Stopping Open Rack Vent")
+        # Don't need to now but could add hardware cleanup here.
+
+        LOGGER.info("Stopping ORV. Bye!")
 
 
 if __name__ == "__main__":

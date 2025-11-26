@@ -5,16 +5,20 @@ sensors.
 
 import itertools
 import statistics
+import threading
 from typing import Dict, List
 
 import fastapi
 import uvicorn
 
+from open_rack_vent.control_api.control_api_common import APIController
 from open_rack_vent.host_hardware import OnboardLED, OpenRackVentHardwareInterface
 from open_rack_vent.host_hardware.board_interface_types import RackLocation
 
 
-def create_web_interface(orv_hardware_interface: OpenRackVentHardwareInterface) -> None:
+def create_web_api(
+    orv_hardware_interface: OpenRackVentHardwareInterface, host: str, port: int
+) -> APIController:
     """
     Main entry point for open_rack_vent
     :return: None
@@ -95,4 +99,17 @@ def create_web_interface(orv_hardware_interface: OpenRackVentHardwareInterface) 
 
         return {"commands": orv_hardware_interface.set_onboard_led(led, state)}
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+
+    server_thread = threading.Thread(target=server.run)
+
+    def stop() -> None:
+        """
+        Tell Uvicorn to shut down and wait for thread to finish
+        :return: None
+        """
+        server.should_exit = True
+        server_thread.join()
+
+    return APIController(non_blocking_run=server_thread.start, stop=stop)
