@@ -1,5 +1,11 @@
 # Changelog
 
+0.3.1 - (2026-01-07)
+------------------
+
+* Fixes two bugs in the MQTT temperature reporting code.
+
+
 0.3.0 - (2025-11-26)
 ------------------
 

@@ -337,9 +337,9 @@ def create_interface(
             board_marking: board_markings.BoardMarkingThermistorPin,
         ) -> TemperatureReader:
             """
-
-            :param board_marking:
-            :return:
+            Wrapper to create the callable. This is kind of dumb!
+            :param board_marking: For looking up the ADC pin.
+            :return: Callable to read temperature.
             """
 
             return lambda: temperature_converter(
